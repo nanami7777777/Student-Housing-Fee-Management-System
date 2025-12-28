@@ -6,6 +6,7 @@ type Config struct {
 	DBUrl     string
 	JWTSecret string
 	HTTPPort  string
+	MQUrl     string
 }
 
 func Load() Config {
@@ -21,10 +22,14 @@ func Load() Config {
 	if port == "" {
 		port = ":8080"
 	}
+	mqUrl := os.Getenv("DORM_MQ_URL")
+	if mqUrl == "" {
+		mqUrl = "amqp://guest:guest@localhost:5672/"
+	}
 	return Config{
 		DBUrl:     dbUrl,
 		JWTSecret: secret,
 		HTTPPort:  port,
+		MQUrl:     mqUrl,
 	}
 }
-

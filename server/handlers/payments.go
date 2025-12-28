@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,6 +11,7 @@ import (
 
 	"dormsystem/db"
 	"dormsystem/models"
+	"dormsystem/mq"
 )
 
 type PaymentRequest struct {
@@ -83,6 +86,12 @@ func CreatePayment(c *gin.Context) {
 	if err := db.DB.Create(&p).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败"})
 		return
+	}
+	body, err := json.Marshal(p)
+	if err == nil {
+		if err := mq.Publish("payments", body); err != nil {
+			log.Println("publish payment message error", err)
+		}
 	}
 	c.JSON(http.StatusOK, p)
 }

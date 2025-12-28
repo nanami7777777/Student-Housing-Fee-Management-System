@@ -1,15 +1,21 @@
 package main
 
 import (
+	"log"
+
 	"dormsystem/config"
 	"dormsystem/db"
 	"dormsystem/handlers"
 	"dormsystem/models"
+	"dormsystem/mq"
 	"dormsystem/router"
 )
 
 func main() {
 	cfg := config.Load()
+	if err := mq.Init(cfg.MQUrl); err != nil {
+		log.Println("mq init error", err)
+	}
 	db.Init(cfg.DBUrl,
 		&models.ApartmentBuilding{},
 		&models.DormRoom{},
@@ -21,4 +27,3 @@ func main() {
 	r := router.SetupRouter()
 	r.Run(cfg.HTTPPort)
 }
-
