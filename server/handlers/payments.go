@@ -26,7 +26,34 @@ type PaymentRequest struct {
 
 func ListPayments(c *gin.Context) {
 	var list []models.Payment
-	if applyPagination(c, db.DB.Model(&models.Payment{}), &list) {
+	query := db.DB.Model(&models.Payment{})
+	keyword := c.Query("keyword")
+	if keyword != "" {
+		query = query.Where(
+			db.DB.
+				Where("payment_no = ?", keyword).
+				Or("payment_type = ?", keyword),
+		)
+	}
+	buildingIDStr := c.Query("buildingID")
+	if buildingIDStr != "" {
+		if id, err := strconv.Atoi(buildingIDStr); err == nil && id > 0 {
+			query = query.Where("building_id = ?", id)
+		}
+	}
+	roomIDStr := c.Query("roomID")
+	if roomIDStr != "" {
+		if id, err := strconv.Atoi(roomIDStr); err == nil && id > 0 {
+			query = query.Where("room_id = ?", id)
+		}
+	}
+	studentIDStr := c.Query("studentID")
+	if studentIDStr != "" {
+		if id, err := strconv.Atoi(studentIDStr); err == nil && id > 0 {
+			query = query.Where("student_id = ?", id)
+		}
+	}
+	if applyPagination(c, query, &list) {
 		return
 	}
 }
@@ -84,7 +111,7 @@ func CreatePayment(c *gin.Context) {
 		Amount:      req.Amount,
 	}
 	if err := db.DB.Create(&p).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败"})
+		respondDBError(c, err, "创建失败")
 		return
 	}
 	body, err := json.Marshal(p)
@@ -158,7 +185,7 @@ func UpdatePayment(c *gin.Context) {
 	p.PaymentType = req.PaymentType
 	p.Amount = req.Amount
 	if err := db.DB.Save(&p).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
+		respondDBError(c, err, "更新失败")
 		return
 	}
 	c.JSON(http.StatusOK, p)

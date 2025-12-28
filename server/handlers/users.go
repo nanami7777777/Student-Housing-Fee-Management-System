@@ -20,7 +20,20 @@ type UserRequest struct {
 
 func ListUsers(c *gin.Context) {
 	var list []models.User
-	if applyPagination(c, db.DB.Model(&models.User{}), &list) {
+	query := db.DB.Model(&models.User{})
+	keyword := c.Query("keyword")
+	if keyword != "" {
+		query = query.Where(
+			db.DB.
+				Where("username = ?", keyword).
+				Or("name = ?", keyword),
+		)
+	}
+	role := c.Query("role")
+	if role != "" {
+		query = query.Where("role = ?", role)
+	}
+	if applyPagination(c, query, &list) {
 		return
 	}
 }
@@ -43,7 +56,7 @@ func CreateUser(c *gin.Context) {
 		Role:         req.Role,
 	}
 	if err := db.DB.Create(&u).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败"})
+		respondDBError(c, err, "创建失败")
 		return
 	}
 	c.JSON(http.StatusOK, u)
@@ -78,7 +91,7 @@ func UpdateUser(c *gin.Context) {
 		u.PasswordHash = string(hash)
 	}
 	if err := db.DB.Save(&u).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
+		respondDBError(c, err, "更新失败")
 		return
 	}
 	c.JSON(http.StatusOK, u)

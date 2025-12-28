@@ -14,6 +14,12 @@
           class="search-input"
           placeholder="按账号或姓名搜索"
         />
+        <select v-model="roleFilter" class="search-input">
+          <option value="">全部权限</option>
+          <option value="admin">管理员</option>
+          <option value="staff">工作人员</option>
+          <option value="teacher">教师</option>
+        </select>
         <button class="secondary" @click="load">刷新</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
@@ -43,20 +49,31 @@
           </tr>
         </tbody>
       </table>
-      <div class="pagination" v-if="total > pageSize">
-        <button class="secondary" :disabled="page === 1" @click="changePage(page - 1)">
+      <div class="pagination" v-if="pageCount > 1 || filteredList.length">
+        <button
+          class="secondary"
+          :disabled="displayPage === 1"
+          @click="changePage(displayPage - 1)"
+        >
           上一页
         </button>
         <span class="page-info">
-          第 {{ page }} / {{ Math.ceil(total / pageSize) }} 页，共 {{ total }} 条
+          第 {{ displayPage }} / {{ displayPageCount }} 页，当前页
+          {{ filteredList.length }} 条，共 {{ displayTotal }} 条
         </span>
         <button
           class="secondary"
-          :disabled="page >= Math.ceil(total / pageSize)"
-          @click="changePage(page + 1)"
+          :disabled="displayPage >= displayPageCount"
+          @click="changePage(displayPage + 1)"
         >
           下一页
         </button>
+        <span class="page-info">
+          跳转到
+          <input v-model.number="pageInput" class="search-input" style="width: 60px" />
+          页
+          <button class="secondary" @click="jumpToPage">跳转</button>
+        </span>
       </div>
     </div>
 
@@ -105,15 +122,26 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, computed, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { listUsers, createUser, updateUser, deleteUser } from "../api/users";
 
+const route = useRoute();
+const router = useRouter();
+
 const list = ref([]);
-const page = ref(1);
-const pageSize = ref(10);
+const page = computed(() => {
+  const p = Number(route.query.page);
+  return Number.isFinite(p) && p > 0 ? p : 1;
+});
+const pageSize = computed(() => {
+  const s = Number(route.query.pageSize);
+  return Number.isFinite(s) && s > 0 ? s : 10;
+});
 const total = ref(0);
 const error = ref("");
-const keyword = ref("");
+const keyword = ref(route.query.keyword || "");
+const roleFilter = ref(route.query.role || "");
 const showDialog = ref(false);
 const form = ref({
   id: null,
@@ -123,32 +151,90 @@ const form = ref({
   role: ""
 });
 
-const filteredList = computed(() => {
-  if (!keyword.value) return list.value;
-  const k = keyword.value.toLowerCase();
-  return list.value.filter(
-    (u) =>
-      String(u.username || "").toLowerCase().includes(k) ||
-      String(u.name || "").toLowerCase().includes(k)
-  );
+const filteredList = computed(() => list.value);
+
+const pageCount = computed(() => {
+  if (!pageSize.value) return 1;
+  const n = Math.ceil(total.value / pageSize.value);
+  return n > 0 ? n : 1;
 });
+
+const displayPage = computed(() => page.value);
+
+const displayPageCount = computed(() => pageCount.value);
+
+const displayTotal = computed(() => total.value);
+
+const pageInput = ref(page.value);
+
+const jumpToPage = () => {
+  const p = Number(pageInput.value);
+  if (!Number.isFinite(p) || p < 1) return;
+  const target = p > pageCount.value ? pageCount.value : p;
+  router.replace({
+    path: route.path,
+    query: { 
+      ...route.query,
+      page: String(target),
+      pageSize: String(pageSize.value)
+    }
+  });
+};
 
 const load = async () => {
   try {
     error.value = "";
-    const res = await listUsers({ page: page.value, pageSize: pageSize.value });
+    const res = await listUsers({
+      page: page.value,
+      pageSize: pageSize.value,
+      keyword: keyword.value || undefined,
+      role: roleFilter.value || undefined
+    });
     const data = res.data;
     list.value = Array.isArray(data) ? data : data.items || [];
     total.value = Array.isArray(data) ? list.value.length : data.total || 0;
   } catch (e) {
-    error.value = "加载系统用户失败";
+    error.value = "加载用户列表失败";
   }
 };
 
+watch(
+  () => [route.query.page, route.query.pageSize, route.query.keyword, route.query.role],
+  () => {
+    keyword.value = route.query.keyword || "";
+    roleFilter.value = route.query.role || "";
+    load();
+    pageInput.value = page.value;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [keyword.value, roleFilter.value],
+  () => {
+    router.replace({
+      path: route.path,
+      query: {
+        ...route.query,
+        page: "1",
+        pageSize: String(pageSize.value),
+        keyword: keyword.value || undefined,
+        role: roleFilter.value || undefined
+      }
+    });
+  }
+);
+
 const changePage = async (p) => {
   if (p < 1) return;
-  page.value = p;
-  await load();
+  router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      page: String(p),
+      pageSize: String(pageSize.value)
+    }
+  });
 };
 
 const reset = () => {
@@ -209,7 +295,11 @@ const save = async () => {
     reset();
     showDialog.value = false;
   } catch (e) {
-    error.value = "保存系统用户失败";
+    if (e.response && e.response.data && e.response.data.error) {
+      error.value = e.response.data.error;
+    } else {
+      error.value = "保存系统用户失败";
+    }
   }
 };
 
@@ -224,8 +314,6 @@ const remove = async (id) => {
     error.value = "删除系统用户失败";
   }
 };
-
-onMounted(load);
 </script>
 
 <style scoped>

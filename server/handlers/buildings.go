@@ -20,7 +20,12 @@ type BuildingRequest struct {
 
 func ListBuildings(c *gin.Context) {
 	var list []models.ApartmentBuilding
-	if applyPagination(c, db.DB.Model(&models.ApartmentBuilding{}), &list) {
+	query := db.DB.Model(&models.ApartmentBuilding{})
+	keyword := c.Query("keyword")
+	if keyword != "" {
+		query = query.Where("building_no = ?", keyword)
+	}
+	if applyPagination(c, query, &list) {
 		return
 	}
 }
@@ -46,7 +51,7 @@ func CreateBuilding(c *gin.Context) {
 		StartedAt:  startedAt,
 	}
 	if err := db.DB.Create(&b).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败"})
+		respondDBError(c, err, "创建失败")
 		return
 	}
 	c.JSON(http.StatusOK, b)
@@ -82,7 +87,7 @@ func UpdateBuilding(c *gin.Context) {
 	b.RoomCount = req.RoomCount
 	b.StartedAt = startedAt
 	if err := db.DB.Save(&b).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
+		respondDBError(c, err, "更新失败")
 		return
 	}
 	c.JSON(http.StatusOK, b)
