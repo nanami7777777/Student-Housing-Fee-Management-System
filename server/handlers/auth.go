@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"dormsystem/config"
 	"dormsystem/db"
 	"dormsystem/models"
 )
@@ -47,9 +50,34 @@ func Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求数据不合法"})
 		return
 	}
-	if req.Username == "root" && req.Password == "root" {
-		c.JSON(http.StatusOK, LoginResponse{Token: "dummy-token"})
+	var u models.User
+	if err := db.DB.Where("username = ?", req.Username).First(&u).Error; err != nil {
+		if req.Username == "root" && req.Password == "root" {
+			c.JSON(http.StatusOK, LoginResponse{Token: "dummy-token"})
+			return
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
-	c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
+		if req.Username == "root" && req.Password == "root" {
+			c.JSON(http.StatusOK, LoginResponse{Token: "dummy-token"})
+			return
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		return
+	}
+	cfg := config.Load()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":      u.ID,
+		"username": u.Username,
+		"role":     u.Role,
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+	})
+	tokenStr, err := token.SignedString([]byte(cfg.JWTSecret))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "登录失败"})
+		return
+	}
+	c.JSON(http.StatusOK, LoginResponse{Token: tokenStr})
 }

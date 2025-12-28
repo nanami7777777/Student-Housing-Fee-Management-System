@@ -14,6 +14,11 @@
           class="search-input"
           placeholder="按寝室号搜索"
         />
+        <SearchSelect
+          v-model.number="buildingFilter"
+          :options="buildingOptions"
+          placeholder="按公寓楼筛选"
+        />
         <button class="secondary" @click="load">刷新</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
@@ -45,20 +50,31 @@
           </tr>
         </tbody>
       </table>
-      <div class="pagination" v-if="total > pageSize">
-        <button class="secondary" :disabled="page === 1" @click="changePage(page - 1)">
+      <div class="pagination" v-if="pageCount > 1 || filteredList.length">
+        <button
+          class="secondary"
+          :disabled="displayPage === 1"
+          @click="changePage(displayPage - 1)"
+        >
           上一页
         </button>
         <span class="page-info">
-          第 {{ page }} / {{ Math.ceil(total / pageSize) }} 页，共 {{ total }} 条
+          第 {{ displayPage }} / {{ displayPageCount }} 页，当前页
+          {{ filteredList.length }} 条，共 {{ displayTotal }} 条
         </span>
         <button
           class="secondary"
-          :disabled="page >= Math.ceil(total / pageSize)"
-          @click="changePage(page + 1)"
+          :disabled="displayPage >= displayPageCount"
+          @click="changePage(displayPage + 1)"
         >
           下一页
         </button>
+        <span class="page-info">
+          跳转到
+          <input v-model.number="pageInput" class="search-input" style="width: 60px" />
+          页
+          <button class="secondary" @click="jumpToPage">跳转</button>
+        </span>
       </div>
     </div>
 
@@ -84,16 +100,11 @@
           </div>
           <div class="modal-row">
             <label>所属公寓楼</label>
-            <select v-model.number="form.buildingID">
-              <option value="">选择公寓楼</option>
-              <option
-                v-for="b in buildingList"
-                :key="b.id"
-                :value="b.id"
-              >
-                {{ b.buildingNo }} (ID: {{ b.id }})
-              </option>
-            </select>
+            <SearchSelect
+              v-model.number="form.buildingID"
+              :options="buildingOptions"
+              placeholder="选择公寓楼"
+            />
           </div>
           <p v-if="error" class="error">{{ error }}</p>
           <div class="modal-footer">
@@ -111,16 +122,30 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, computed, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { listRooms, createRoom, updateRoom, deleteRoom } from "../api/rooms";
 import { listBuildings } from "../api/buildings";
+import SearchSelect from "../components/SearchSelect.vue";
+
+const route = useRoute();
+const router = useRouter();
 
 const list = ref([]);
-const page = ref(1);
-const pageSize = ref(10);
+const page = computed(() => {
+  const p = Number(route.query.page);
+  return Number.isFinite(p) && p > 0 ? p : 1;
+});
+const pageSize = computed(() => {
+  const s = Number(route.query.pageSize);
+  return Number.isFinite(s) && s > 0 ? s : 10;
+});
 const total = ref(0);
 const error = ref("");
-const keyword = ref("");
+const keyword = ref(route.query.keyword || "");
+const buildingFilter = ref(
+  route.query.buildingID ? Number(route.query.buildingID) || null : null
+);
 const showDialog = ref(false);
 const buildingList = ref([]);
 const form = ref({
@@ -132,19 +157,53 @@ const form = ref({
   buildingID: null
 });
 
-const filteredList = computed(() => {
-  if (!keyword.value) return list.value;
-  const k = keyword.value.toLowerCase();
-  return list.value.filter((r) =>
-    String(r.roomNo || "").toLowerCase().includes(k)
-  );
+const filteredList = computed(() => list.value);
+
+const pageCount = computed(() => {
+  if (!pageSize.value) return 1;
+  const n = Math.ceil(total.value / pageSize.value);
+  return n > 0 ? n : 1;
 });
+
+const displayPage = computed(() => page.value);
+
+const displayPageCount = computed(() => pageCount.value);
+
+const displayTotal = computed(() => total.value);
+
+const pageInput = ref(page.value);
+
+const jumpToPage = () => {
+  const p = Number(pageInput.value);
+  if (!Number.isFinite(p) || p < 1) return;
+  const target = p > pageCount.value ? pageCount.value : p;
+  router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      page: String(target),
+      pageSize: String(pageSize.value)
+    }
+  });
+};
+
+const buildingOptions = computed(() =>
+  buildingList.value.map((b) => ({
+    value: b.id,
+    label: `${b.buildingNo} (ID: ${b.id})`
+  }))
+);
 
 const load = async () => {
   try {
     error.value = "";
     const [roomsRes, buildingsRes] = await Promise.all([
-      listRooms({ page: page.value, pageSize: pageSize.value }),
+      listRooms({
+        page: page.value,
+        pageSize: pageSize.value,
+        keyword: keyword.value || undefined,
+        buildingID: buildingFilter.value || undefined
+      }),
       listBuildings()
     ]);
     const data = roomsRes.data;
@@ -158,8 +217,14 @@ const load = async () => {
 
 const changePage = async (p) => {
   if (p < 1) return;
-  page.value = p;
-  await load();
+  router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      page: String(p),
+      pageSize: String(pageSize.value)
+    }
+  });
 };
 
 const reset = () => {
@@ -212,7 +277,11 @@ const save = async () => {
     reset();
     showDialog.value = false;
   } catch (e) {
-    error.value = "保存寝室信息失败";
+    if (e.response && e.response.data && e.response.data.error) {
+      error.value = e.response.data.error;
+    } else {
+      error.value = "保存寝室信息失败";
+    }
   }
 };
 
@@ -228,7 +297,35 @@ const remove = async (id) => {
   }
 };
 
-onMounted(load);
+watch(
+  () => [route.query.page, route.query.pageSize, route.query.keyword, route.query.buildingID],
+  () => {
+    keyword.value = route.query.keyword || "";
+    buildingFilter.value = route.query.buildingID
+      ? Number(route.query.buildingID) || null
+      : null;
+    load();
+    pageInput.value = page.value;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [keyword.value, buildingFilter.value],
+  () => {
+    router.replace({
+      path: route.path,
+      query: {
+        ...route.query,
+        page: "1",
+        pageSize: String(pageSize.value),
+        keyword: keyword.value || undefined,
+        buildingID:
+          buildingFilter.value != null ? String(buildingFilter.value) : undefined
+      }
+    });
+  }
+);
 </script>
 
 <style scoped>

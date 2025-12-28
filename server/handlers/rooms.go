@@ -12,7 +12,18 @@ import (
 
 func ListRooms(c *gin.Context) {
 	var list []models.DormRoom
-	if applyPagination(c, db.DB.Model(&models.DormRoom{}), &list) {
+	query := db.DB.Model(&models.DormRoom{})
+	keyword := c.Query("keyword")
+	if keyword != "" {
+		query = query.Where("room_no = ?", keyword)
+	}
+	buildingIDStr := c.Query("buildingID")
+	if buildingIDStr != "" {
+		if id, err := strconv.Atoi(buildingIDStr); err == nil && id > 0 {
+			query = query.Where("building_id = ?", id)
+		}
+	}
+	if applyPagination(c, query, &list) {
 		return
 	}
 }
@@ -33,7 +44,7 @@ func CreateRoom(c *gin.Context) {
 		return
 	}
 	if err := db.DB.Create(&r).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败"})
+		respondDBError(c, err, "创建失败")
 		return
 	}
 	c.JSON(http.StatusOK, r)
@@ -71,7 +82,7 @@ func UpdateRoom(c *gin.Context) {
 	r.Phone = req.Phone
 	r.BuildingID = req.BuildingID
 	if err := db.DB.Save(&r).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
+		respondDBError(c, err, "更新失败")
 		return
 	}
 	c.JSON(http.StatusOK, r)

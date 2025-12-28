@@ -8,6 +8,7 @@ import UsersView from "../views/UsersView.vue";
 import StatsView from "../views/StatsView.vue";
 
 const routes = [
+  { path: "/", redirect: "/login" },
   { path: "/login", component: LoginView },
   { path: "/students", component: StudentsView },
   { path: "/buildings", component: BuildingsView },

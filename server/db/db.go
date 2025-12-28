@@ -24,7 +24,7 @@ func Init(dsn string, modelDefs ...interface{}) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	applySchemaObjects()
 }
 
 func applySchemaObjects() {
